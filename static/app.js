@@ -284,7 +284,7 @@ function initEditor() {
         paper.view.zoom = Math.min(zoomX, zoomY) * 0.9;
         paper.view.center = raster.position;
     };
-    raster.opacity = 0.3;  // faint reference guide behind vector paths
+    raster.visible = false; // hidden; kept for export dimension reference
     raster.locked = true;
     editor.bgLayer.locked = true;
 
@@ -862,31 +862,39 @@ function handleEditorWheel(e) {
     if (state.screen !== 'editor') return;
     e.preventDefault();
 
-    var delta = e.deltaY;
-    var zoomFactor = 1.05;
-    var oldZoom = paper.view.zoom;
-    var newZoom;
+    // Ctrl+scroll (or pinch on trackpad) = zoom
+    if (e.ctrlKey || e.metaKey) {
+        var delta = e.deltaY;
+        var zoomFactor = 1.05;
+        var oldZoom = paper.view.zoom;
+        var newZoom;
 
-    if (delta < 0) {
-        newZoom = oldZoom * zoomFactor;
+        if (delta < 0) {
+            newZoom = oldZoom * zoomFactor;
+        } else {
+            newZoom = oldZoom / zoomFactor;
+        }
+
+        // Clamp zoom
+        newZoom = Math.max(0.1, Math.min(newZoom, 20));
+
+        // Zoom toward the mouse position
+        var canvasEl = document.getElementById('editor-canvas');
+        var rect = canvasEl.getBoundingClientRect();
+        var mouseX = e.clientX - rect.left;
+        var mouseY = e.clientY - rect.top;
+
+        var viewPos = paper.view.viewToProject(new paper.Point(mouseX, mouseY));
+        paper.view.zoom = newZoom;
+        var afterViewPos = paper.view.viewToProject(new paper.Point(mouseX, mouseY));
+        var shift = afterViewPos.subtract(viewPos);
+        paper.view.center = paper.view.center.subtract(shift);
     } else {
-        newZoom = oldZoom / zoomFactor;
+        // Plain scroll (two-finger swipe on trackpad) = pan
+        var dx = e.deltaX / paper.view.zoom;
+        var dy = e.deltaY / paper.view.zoom;
+        paper.view.center = paper.view.center.add(new paper.Point(dx, dy));
     }
-
-    // Clamp zoom
-    newZoom = Math.max(0.1, Math.min(newZoom, 20));
-
-    // Zoom toward the mouse position
-    var canvasEl = document.getElementById('editor-canvas');
-    var rect = canvasEl.getBoundingClientRect();
-    var mouseX = e.clientX - rect.left;
-    var mouseY = e.clientY - rect.top;
-
-    var viewPos = paper.view.viewToProject(new paper.Point(mouseX, mouseY));
-    paper.view.zoom = newZoom;
-    var afterViewPos = paper.view.viewToProject(new paper.Point(mouseX, mouseY));
-    var shift = afterViewPos.subtract(viewPos);
-    paper.view.center = paper.view.center.subtract(shift);
 }
 
 // ---------------------------------------------------------------------------
