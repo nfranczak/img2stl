@@ -228,13 +228,109 @@ main {
     font-size: 0.95rem;
 }
 
-/* ===== Editor Screen (placeholder) ===== */
-#editor-screen .placeholder-message,
+/* ===== Editor Screen ===== */
+#editor-screen {
+    max-width: 100%;
+}
+
+#editor-screen.active {
+    display: flex;
+    height: calc(100vh - 100px);
+}
+
+.editor-toolbar {
+    width: 64px;
+    min-width: 64px;
+    background: var(--bg-secondary);
+    display: flex;
+    flex-direction: column;
+    padding: 8px;
+    gap: 4px;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+}
+
+.tool-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.tool-group:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.tool-btn {
+    width: 44px;
+    height: 44px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-primary);
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    transition: background-color var(--transition), color var(--transition);
+}
+
+.tool-btn:hover {
+    background: var(--bg-surface);
+}
+
+.tool-btn.active {
+    background: var(--accent);
+    color: #fff;
+}
+
+.tool-options {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.tool-options label {
+    display: flex;
+    flex-direction: column;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    gap: 4px;
+    text-align: center;
+}
+
+.tool-options input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent);
+}
+
+.editor-canvas-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    background: #111;
+}
+
+#editor-canvas {
+    width: 100%;
+    height: 100%;
+}
+
+/* Export Screen placeholder */
 #export-screen .placeholder-message {
     text-align: center;
     padding: 4rem 2rem;
     color: var(--text-secondary);
     font-size: 1.1rem;
+}
+
+/* Editor export button sizing */
+#export-btn {
+    width: 100%;
+    padding: 0.5rem 0.5rem;
+    font-size: 0.8rem;
 }
 
 /* ===== Error Toast ===== */

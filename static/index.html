@@ -41,10 +41,49 @@
 
         </section>
 
-        <!-- ====== Editor Screen (placeholder — Task 9) ====== -->
+        <!-- ====== Editor Screen ====== -->
         <section id="editor-screen" class="screen">
-            <div class="placeholder-message">
-                <p>Editor will appear here.</p>
+            <div class="editor-toolbar">
+                <div class="tool-group">
+                    <button class="tool-btn active" data-tool="select" title="Select (V)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg>
+                    </button>
+                    <button class="tool-btn" data-tool="pen" title="Pen (P)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
+                    </button>
+                    <button class="tool-btn" data-tool="freehand" title="Freehand (B)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10c-2 0-3-1-3-3s2-4 2-4-4 2-4 4 1 3 3 3m-4 4c2 0 3 1 3 3s-2 4-2 4 4-2 4-4-1-3-3-3"/><path d="M3 21s2-4 4-4 3 1 3 3-2 4-4 4-3-1-3-3z"/></svg>
+                    </button>
+                    <button class="tool-btn" data-tool="line" title="Line (L)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="19" x2="19" y2="5"/></svg>
+                    </button>
+                    <button class="tool-btn" data-tool="eraser" title="Eraser (E)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20H7L3 16l9-9 8 8-4 4z"/><path d="M6 11l8 8"/></svg>
+                    </button>
+                    <button class="tool-btn" data-tool="rectangle" title="Rectangle (R)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                    </button>
+                    <button class="tool-btn" data-tool="ellipse" title="Ellipse (O)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="10" ry="8"/></svg>
+                    </button>
+                </div>
+                <div class="tool-options">
+                    <label>Size: <input type="range" id="stroke-width" min="1" max="20" value="3"></label>
+                </div>
+                <div class="tool-group">
+                    <button class="tool-btn" id="undo-btn" title="Undo (Ctrl+Z)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                    </button>
+                    <button class="tool-btn" id="redo-btn" title="Redo (Ctrl+Y)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10"/></svg>
+                    </button>
+                </div>
+                <div class="tool-group" style="margin-top: auto;">
+                    <button class="btn btn--primary" id="export-btn">Export</button>
+                </div>
+            </div>
+            <div class="editor-canvas-container">
+                <canvas id="editor-canvas" resize></canvas>
             </div>
         </section>
 
