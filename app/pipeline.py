@@ -16,3 +16,42 @@ def detect_ink(img: np.ndarray) -> np.ndarray:
 
     mask = (dark_mask | blue_mask).astype(np.uint8) * 255
     return mask
+
+
+def remove_ruled_lines(mask: np.ndarray) -> np.ndarray:
+    """Remove thin horizontal ruled lines from binary mask, preserving thick ink strokes."""
+    # Detect horizontal lines with wide kernel
+    horiz_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (80, 1))
+    horiz_lines = cv2.morphologyEx(mask, cv2.MORPH_OPEN, horiz_kernel)
+
+    # Detect thick ink regions (opening removes thin structures, keeps thick)
+    thick_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    thick_ink = cv2.morphologyEx(mask, cv2.MORPH_OPEN, thick_kernel)
+    thick_ink_dilated = cv2.dilate(thick_ink, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15)))
+
+    # Only remove horizontal lines that aren't near thick ink
+    lines_to_remove = cv2.bitwise_and(horiz_lines, cv2.bitwise_not(thick_ink_dilated))
+    cleaned = cv2.bitwise_and(mask, cv2.bitwise_not(lines_to_remove))
+    return cleaned
+
+
+def remove_red_margin(img: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Remove red margin line from ink mask using HSV color detection."""
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    # Red hue in OpenCV: 0-10 and 170-180
+    lower_red1 = np.array([0, 80, 80])
+    upper_red1 = np.array([10, 255, 255])
+    lower_red2 = np.array([170, 80, 80])
+    upper_red2 = np.array([180, 255, 255])
+
+    red_mask = cv2.inRange(hsv, lower_red1, upper_red1) | cv2.inRange(hsv, lower_red2, upper_red2)
+
+    # Confirm it's a vertical line with morphological opening
+    vert_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 40))
+    red_line = cv2.morphologyEx(red_mask, cv2.MORPH_OPEN, vert_kernel)
+
+    # Dilate slightly to catch edges
+    red_line = cv2.dilate(red_line, cv2.getStructuringElement(cv2.MORPH_RECT, (5, 1)))
+
+    cleaned = cv2.bitwise_and(mask, cv2.bitwise_not(red_line))
+    return cleaned
