@@ -68,7 +68,7 @@
                     </button>
                 </div>
                 <div class="tool-options">
-                    <label>Size: <input type="range" id="stroke-width" min="1" max="20" value="3"></label>
+                    <label>Size: <span id="stroke-width-val">3</span> <input type="range" id="stroke-width" min="1" max="20" value="3"></label>
                 </div>
                 <div class="tool-group">
                     <button class="tool-btn" id="undo-btn" title="Undo (Ctrl+Z)">
@@ -76,6 +76,9 @@
                     </button>
                     <button class="tool-btn" id="redo-btn" title="Redo (Ctrl+Y)">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10"/></svg>
+                    </button>
+                    <button class="tool-btn" id="fit-btn" title="Fit to screen (F)">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
                     </button>
                 </div>
                 <div class="tool-group" style="margin-top: auto;">

@@ -53,11 +53,18 @@ function showScreen(name) {
 // ---------------------------------------------------------------------------
 // Loading overlay
 // ---------------------------------------------------------------------------
-function showLoading(visible) {
+function showLoading(visible, message) {
     if (visible) {
+        if (message) {
+            var p = dom.loadingOverlay.querySelector('p');
+            if (p) p.textContent = message;
+        }
         dom.loadingOverlay.classList.add('visible');
     } else {
         dom.loadingOverlay.classList.remove('visible');
+        // Reset default message
+        var p = dom.loadingOverlay.querySelector('p');
+        if (p) p.textContent = 'Processing image\u2026';
     }
 }
 
@@ -208,6 +215,10 @@ document.addEventListener('DOMContentLoaded', function () {
     // Upload button
     dom.uploadBtn.addEventListener('click', uploadImage);
 
+    // Prevent browser from opening files dropped outside the drop zone
+    document.body.addEventListener('dragover', function (e) { e.preventDefault(); });
+    document.body.addEventListener('drop', function (e) { e.preventDefault(); });
+
     // Show the upload screen by default
     showScreen('upload');
 });
@@ -222,6 +233,8 @@ var editor = {
     redoStack: [],
     selectedPath: null,
     penPath: null,          // path being drawn with pen tool
+    penDragSegment: null,   // segment being dragged for bezier handles
+    penGuideLine: null,     // dashed guide from last anchor to cursor
     activePath: null,       // path being drawn with freehand / eraser
     previewShape: null,     // preview for rect / ellipse / line
     dragStart: null,        // mouse-down point for shapes
@@ -233,6 +246,7 @@ var editor = {
     drawLayer: null,
     initialized: false,
     eventsAttached: false,
+    toolCreated: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -270,6 +284,7 @@ function initEditor() {
         paper.view.zoom = Math.min(zoomX, zoomY) * 0.9;
         paper.view.center = raster.position;
     };
+    raster.opacity = 0.3;  // faint reference guide behind vector paths
     raster.locked = true;
     editor.bgLayer.locked = true;
 
@@ -295,7 +310,10 @@ function initEditor() {
         saveEditorState();
     }
 
-    setupTools();
+    if (!editor.toolCreated) {
+        setupTools();
+        editor.toolCreated = true;
+    }
     if (!editor.eventsAttached) {
         setupEditorEvents();
         editor.eventsAttached = true;
@@ -307,16 +325,17 @@ function initEditor() {
 // ---------------------------------------------------------------------------
 function flattenAndStyleSVG(item) {
     if (item.children) {
-        // Process children in reverse to safely remove groups
         var children = item.children.slice();
         for (var i = 0; i < children.length; i++) {
             flattenAndStyleSVG(children[i]);
         }
     }
     if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
-        item.strokeColor = 'black';
-        item.fillColor = 'black';
-        item.strokeWidth = 1;
+        // White fill matches stencil semantics (white = ink = cutout)
+        // and is visible against the dark canvas background
+        item.fillColor = 'white';
+        item.strokeColor = null;
+        item.strokeWidth = 0;
     }
 }
 
@@ -363,7 +382,14 @@ function restoreEditorState(jsonStr) {
     if (editor.drawLayer) {
         editor.drawLayer.activate();
     }
+    // Reset all active tool state — old items were removed by project.clear()
     editor.selectedPath = null;
+    editor.penPath = null;
+    editor.penGuideLine = null;
+    editor.penDragSegment = null;
+    editor.activePath = null;
+    editor.previewShape = null;
+    editor.dragStart = null;
     deselectAll();
     paper.view.update();
 }
@@ -425,6 +451,10 @@ function getCursorForTool(toolName) {
 // Editor: Pen tool helpers
 // ---------------------------------------------------------------------------
 function finishPenPath() {
+    if (editor.penGuideLine) {
+        editor.penGuideLine.remove();
+        editor.penGuideLine = null;
+    }
     if (editor.penPath) {
         if (editor.penPath.segments.length < 2) {
             editor.penPath.remove();
@@ -490,6 +520,9 @@ function setupTools() {
             case 'select':
                 toolSelectDrag(event);
                 break;
+            case 'pen':
+                toolPenDrag(event);
+                break;
             case 'freehand':
                 toolFreehandDrag(event);
                 break;
@@ -537,9 +570,23 @@ function setupTools() {
     };
 
     tool.onMouseMove = function (event) {
-        // Pen tool preview line
+        // Pen tool guide line: show a preview from last anchor to cursor
         if (editor.currentTool === 'pen' && editor.penPath && editor.penPath.segments.length > 0) {
-            // Nothing dynamic on hover for now; could add guide line
+            if (editor.penGuideLine) {
+                editor.penGuideLine.remove();
+            }
+            var lastPt = editor.penPath.lastSegment.point;
+            editor.penGuideLine = new paper.Path.Line({
+                from: lastPt,
+                to: event.point,
+                strokeColor: 'rgba(233, 69, 96, 0.5)',
+                strokeWidth: 1,
+                dashArray: [4, 4],
+                guide: true,
+            });
+        } else if (editor.penGuideLine) {
+            editor.penGuideLine.remove();
+            editor.penGuideLine = null;
         }
     };
 }
@@ -612,9 +659,8 @@ function getTopLevelItem(item) {
 // ---------------------------------------------------------------------------
 function toolPenDown(event) {
     if (!editor.penPath) {
-        // Start a new path
         editor.penPath = new paper.Path({
-            strokeColor: 'black',
+            strokeColor: 'white',
             strokeWidth: getStrokeWidth(),
             fillColor: null,
         });
@@ -622,6 +668,16 @@ function toolPenDown(event) {
 
     // Add a segment at the click point
     editor.penPath.add(new paper.Segment(event.point));
+    editor.penDragSegment = editor.penPath.lastSegment;
+}
+
+// Pen tool drag: pull bezier handles from the last anchor point
+function toolPenDrag(event) {
+    if (editor.penPath && editor.penDragSegment) {
+        var delta = event.point.subtract(editor.penDragSegment.point);
+        editor.penDragSegment.handleOut = delta;
+        editor.penDragSegment.handleIn = delta.negate();
+    }
 }
 
 // Double-click detection for finishing pen path is handled via dblclick event
@@ -631,7 +687,7 @@ function toolPenDown(event) {
 // ---------------------------------------------------------------------------
 function toolFreehandDown(event) {
     editor.activePath = new paper.Path({
-        strokeColor: 'black',
+        strokeColor: 'white',
         strokeWidth: getStrokeWidth(),
         fillColor: null,
     });
@@ -660,7 +716,7 @@ function toolLineDown(event) {
     editor.previewShape = new paper.Path.Line({
         from: editor.dragStart,
         to: editor.dragStart,
-        strokeColor: 'black',
+        strokeColor: 'white',
         strokeWidth: getStrokeWidth(),
     });
 }
@@ -671,7 +727,7 @@ function toolLineDrag(event) {
         editor.previewShape = new paper.Path.Line({
             from: editor.dragStart,
             to: event.point,
-            strokeColor: 'black',
+            strokeColor: 'white',
             strokeWidth: getStrokeWidth(),
         });
     }
@@ -695,7 +751,7 @@ function toolLineUp(event) {
 // ---------------------------------------------------------------------------
 function toolEraserDown(event) {
     editor.activePath = new paper.Path({
-        strokeColor: 'white',
+        strokeColor: '#111',
         strokeWidth: getStrokeWidth() * 3,
         fillColor: null,
         strokeCap: 'round',
@@ -727,7 +783,7 @@ function toolRectDown(event) {
     editor.previewShape = new paper.Path.Rectangle({
         from: editor.dragStart,
         to: editor.dragStart,
-        strokeColor: 'black',
+        strokeColor: 'white',
         strokeWidth: getStrokeWidth(),
         fillColor: null,
     });
@@ -739,7 +795,7 @@ function toolRectDrag(event) {
         editor.previewShape = new paper.Path.Rectangle({
             from: editor.dragStart,
             to: event.point,
-            strokeColor: 'black',
+            strokeColor: 'white',
             strokeWidth: getStrokeWidth(),
             fillColor: null,
         });
@@ -767,7 +823,7 @@ function toolEllipseDown(event) {
     editor.previewShape = new paper.Path.Ellipse({
         from: editor.dragStart,
         to: editor.dragStart,
-        strokeColor: 'black',
+        strokeColor: 'white',
         strokeWidth: getStrokeWidth(),
         fillColor: null,
     });
@@ -779,7 +835,7 @@ function toolEllipseDrag(event) {
         editor.previewShape = new paper.Path.Ellipse({
             from: editor.dragStart,
             to: event.point,
-            strokeColor: 'black',
+            strokeColor: 'white',
             strokeWidth: getStrokeWidth(),
             fillColor: null,
         });
@@ -834,6 +890,24 @@ function handleEditorWheel(e) {
 }
 
 // ---------------------------------------------------------------------------
+// Editor: Zoom to fit
+// ---------------------------------------------------------------------------
+function zoomToFit() {
+    var target = null;
+    if (editor.bgLayer && editor.bgLayer.children.length > 0) {
+        target = editor.bgLayer.children[0];
+    } else if (editor.drawLayer && editor.drawLayer.bounds.width > 0) {
+        target = editor.drawLayer;
+    }
+    if (!target) return;
+
+    var zoomX = paper.view.viewSize.width / target.bounds.width;
+    var zoomY = paper.view.viewSize.height / target.bounds.height;
+    paper.view.zoom = Math.min(zoomX, zoomY) * 0.9;
+    paper.view.center = target.bounds.center;
+}
+
+// ---------------------------------------------------------------------------
 // Editor: Setup DOM event handlers
 // ---------------------------------------------------------------------------
 function setupEditorEvents() {
@@ -862,6 +936,21 @@ function setupEditorEvents() {
             showScreen('export');
             initExportScreen();
         });
+    }
+
+    // Stroke width slider live value
+    var strokeSlider = document.getElementById('stroke-width');
+    var strokeVal = document.getElementById('stroke-width-val');
+    if (strokeSlider && strokeVal) {
+        strokeSlider.addEventListener('input', function () {
+            strokeVal.textContent = strokeSlider.value;
+        });
+    }
+
+    // Fit to screen button
+    var fitBtn = document.getElementById('fit-btn');
+    if (fitBtn) {
+        fitBtn.addEventListener('click', function () { zoomToFit(); });
     }
 
     // New image button
@@ -893,6 +982,15 @@ function setupEditorEvents() {
     // Keyboard shortcuts
     document.addEventListener('keydown', handleEditorKeyDown);
     document.addEventListener('keyup', handleEditorKeyUp);
+
+    // Resize canvas when window resizes
+    window.addEventListener('resize', function () {
+        if (state.screen !== 'editor') return;
+        var container = document.querySelector('.editor-canvas-container');
+        if (container && paper.view) {
+            paper.view.viewSize = new paper.Size(container.clientWidth, container.clientHeight);
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -937,6 +1035,7 @@ function handleEditorKeyDown(e) {
             case 'e': setActiveTool('eraser'); break;
             case 'r': setActiveTool('rectangle'); break;
             case 'o': setActiveTool('ellipse'); break;
+            case 'f': zoomToFit(); break;
             case 'enter':
                 if (editor.currentTool === 'pen' && editor.penPath) {
                     finishPenPath();
@@ -944,6 +1043,10 @@ function handleEditorKeyDown(e) {
                 break;
             case 'escape':
                 if (editor.currentTool === 'pen' && editor.penPath) {
+                    if (editor.penGuideLine) {
+                        editor.penGuideLine.remove();
+                        editor.penGuideLine = null;
+                    }
                     editor.penPath.remove();
                     editor.penPath = null;
                 } else {
@@ -986,11 +1089,18 @@ var exportEventsAttached = false;
  * as a preview image and wire up event handlers.
  */
 function initExportScreen() {
-    // Capture a snapshot of the current editor canvas as a preview
+    // Zoom-to-fit before capturing so the preview shows the full drawing
     var canvas = document.getElementById('editor-canvas');
     var previewImg = document.getElementById('export-preview-img');
-    if (canvas && previewImg) {
+    if (canvas && previewImg && paper.view) {
+        var prevZoom = paper.view.zoom;
+        var prevCenter = paper.view.center.clone();
+        zoomToFit();
+        paper.view.update();
         previewImg.src = canvas.toDataURL('image/png');
+        // Restore previous view state
+        paper.view.zoom = prevZoom;
+        paper.view.center = prevCenter;
     }
 
     // Wire up export buttons (only once)
@@ -1145,7 +1255,7 @@ async function rasterizeForSTL() {
 // ---------------------------------------------------------------------------
 
 async function exportSTL() {
-    showLoading(true);
+    showLoading(true, 'Generating STL\u2026');
     try {
         var maskBlob = await rasterizeForSTL();
 
@@ -1186,7 +1296,10 @@ async function exportSTL() {
 
 function downloadSVG() {
     try {
-        var svg = paper.project.exportSVG({ asString: true });
+        // Export only the draw layer (skip the background raster)
+        var svg = editor.drawLayer
+            ? editor.drawLayer.exportSVG({ asString: true })
+            : paper.project.exportSVG({ asString: true });
         var blob = new Blob([svg], { type: 'image/svg+xml' });
         triggerDownload(blob, 'stencil.svg');
     } catch (err) {
