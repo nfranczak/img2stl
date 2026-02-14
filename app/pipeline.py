@@ -1,3 +1,5 @@
+from typing import Union
+
 import cv2
 import numpy as np
 
@@ -57,13 +59,15 @@ def remove_red_margin(img: np.ndarray, mask: np.ndarray) -> np.ndarray:
     return cleaned
 
 
-def clean_drawing(input_data) -> np.ndarray:
+def clean_drawing(input_data: Union[bytes, np.ndarray]) -> np.ndarray:
     """Full cleaning pipeline. Accepts BGR image array or raw image bytes.
     Returns binary mask (255=ink, 0=background), cropped to content.
     """
     if isinstance(input_data, bytes):
         arr = np.frombuffer(input_data, np.uint8)
         img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is None:
+            raise ValueError("Could not decode image from provided bytes")
     else:
         img = input_data
 
