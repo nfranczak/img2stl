@@ -848,6 +848,7 @@ function setupEditorEvents() {
     if (exportBtn) {
         exportBtn.addEventListener('click', function () {
             showScreen('export');
+            initExportScreen();
         });
     }
 
@@ -950,4 +951,208 @@ function handleEditorKeyUp(e) {
             container.style.cursor = getCursorForTool(editor.currentTool);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Export Screen (Task 10)
+// ---------------------------------------------------------------------------
+
+var exportEventsAttached = false;
+
+/**
+ * Initialize the export screen: capture a snapshot of the editor canvas
+ * as a preview image and wire up event handlers.
+ */
+function initExportScreen() {
+    // Capture a snapshot of the current editor canvas as a preview
+    var canvas = document.getElementById('editor-canvas');
+    var previewImg = document.getElementById('export-preview-img');
+    if (canvas && previewImg) {
+        previewImg.src = canvas.toDataURL('image/png');
+    }
+
+    // Wire up export buttons (only once)
+    if (!exportEventsAttached) {
+        var stlBtn = document.getElementById('download-stl-btn');
+        var svgBtn = document.getElementById('download-svg-btn');
+        var pngBtn = document.getElementById('download-png-btn');
+        var backBtn = document.getElementById('back-to-editor-btn');
+
+        if (stlBtn) stlBtn.addEventListener('click', exportSTL);
+        if (svgBtn) svgBtn.addEventListener('click', downloadSVG);
+        if (pngBtn) pngBtn.addEventListener('click', downloadPNG);
+        if (backBtn) {
+            backBtn.addEventListener('click', function () {
+                showScreen('editor');
+            });
+        }
+
+        exportEventsAttached = true;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Export: Rasterize canvas to a binary mask PNG for STL generation
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates a binary black-and-white image (ink = white, background = black)
+ * from the cleaned image + user edits for the STL backend.
+ *
+ * Returns a Promise<Blob> of the mask PNG.
+ */
+async function rasterizeForSTL() {
+    // Determine dimensions from the background raster
+    var rasterItem = null;
+    if (editor.bgLayer && editor.bgLayer.children.length > 0) {
+        rasterItem = editor.bgLayer.children[0];
+    }
+
+    var exportWidth = 800;
+    var exportHeight = 800;
+
+    if (rasterItem) {
+        var scale = exportWidth / rasterItem.bounds.width;
+        exportHeight = Math.round(rasterItem.bounds.height * scale);
+    }
+
+    var tempCanvas = document.createElement('canvas');
+    tempCanvas.width = exportWidth;
+    tempCanvas.height = exportHeight;
+    var ctx = tempCanvas.getContext('2d');
+
+    // Black background
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, exportWidth, exportHeight);
+
+    // Draw the cleaned image (which is already binary)
+    if (state.cleanedImage) {
+        var bgImg = new Image();
+        bgImg.src = 'data:image/png;base64,' + state.cleanedImage;
+        await new Promise(function (resolve, reject) {
+            bgImg.onload = resolve;
+            bgImg.onerror = reject;
+        });
+        ctx.drawImage(bgImg, 0, 0, exportWidth, exportHeight);
+    }
+
+    // Overlay the draw layer edits (vector paths)
+    if (editor.drawLayer && editor.drawLayer.children.length > 0) {
+        var svgStr = editor.drawLayer.exportSVG({ asString: true });
+        // Wrap the SVG so it has explicit dimensions for rendering
+        var wrappedSVG = svgStr;
+        // Ensure the SVG has a viewBox and dimensions for correct rendering
+        if (rasterItem) {
+            var bounds = rasterItem.bounds;
+            wrappedSVG = svgStr.replace(
+                /^<svg/,
+                '<svg viewBox="' + bounds.x + ' ' + bounds.y + ' ' + bounds.width + ' ' + bounds.height + '" width="' + exportWidth + '" height="' + exportHeight + '"'
+            );
+        }
+
+        var svgBlob = new Blob([wrappedSVG], { type: 'image/svg+xml;charset=utf-8' });
+        var url = URL.createObjectURL(svgBlob);
+        var svgImg = new Image();
+        await new Promise(function (resolve, reject) {
+            svgImg.onload = resolve;
+            svgImg.onerror = reject;
+            svgImg.src = url;
+        });
+        ctx.drawImage(svgImg, 0, 0, exportWidth, exportHeight);
+        URL.revokeObjectURL(url);
+    }
+
+    // Return a PNG blob
+    return new Promise(function (resolve) {
+        tempCanvas.toBlob(resolve, 'image/png');
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Export: Download STL
+// ---------------------------------------------------------------------------
+
+async function exportSTL() {
+    showLoading(true);
+    try {
+        var maskBlob = await rasterizeForSTL();
+
+        var form = new FormData();
+        form.append('file', maskBlob, 'mask.png');
+        form.append('width_mm', document.getElementById('stl-width').value);
+        form.append('thickness_mm', document.getElementById('stl-thickness').value);
+        form.append('border_mm', document.getElementById('stl-border').value);
+
+        var res = await fetch('/api/generate-stl', {
+            method: 'POST',
+            body: form,
+        });
+
+        if (!res.ok) {
+            var errBody;
+            try {
+                errBody = await res.json();
+            } catch (_) {
+                errBody = null;
+            }
+            var detail = (errBody && errBody.detail) ? errBody.detail : res.statusText;
+            throw new Error(detail);
+        }
+
+        var stlBlob = await res.blob();
+        triggerDownload(stlBlob, 'stencil.stl');
+    } catch (err) {
+        showError('Export failed: ' + err.message);
+    } finally {
+        showLoading(false);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Export: Download SVG
+// ---------------------------------------------------------------------------
+
+function downloadSVG() {
+    try {
+        var svg = paper.project.exportSVG({ asString: true });
+        var blob = new Blob([svg], { type: 'image/svg+xml' });
+        triggerDownload(blob, 'stencil.svg');
+    } catch (err) {
+        showError('SVG export failed: ' + err.message);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Export: Download PNG
+// ---------------------------------------------------------------------------
+
+function downloadPNG() {
+    try {
+        var canvas = document.getElementById('editor-canvas');
+        var dataURL = canvas.toDataURL('image/png');
+        var a = document.createElement('a');
+        a.href = dataURL;
+        a.download = 'stencil.png';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    } catch (err) {
+        showError('PNG export failed: ' + err.message);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Export: Trigger file download from a Blob
+// ---------------------------------------------------------------------------
+
+function triggerDownload(blob, filename) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // Clean up the object URL after a short delay
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
 }

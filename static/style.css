@@ -318,12 +318,133 @@ main {
     height: 100%;
 }
 
-/* Export Screen placeholder */
-#export-screen .placeholder-message {
+/* ===== Export Screen ===== */
+#export-screen {
+    max-width: 700px;
+}
+
+.export-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    padding: 1rem 0;
+}
+
+/* Preview */
+.export-preview {
     text-align: center;
-    padding: 4rem 2rem;
-    color: var(--text-secondary);
+}
+
+.export-preview h2,
+.export-params h2 {
     font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.75rem;
+}
+
+#export-preview-img {
+    max-width: 100%;
+    max-height: 350px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    object-fit: contain;
+    background: #111;
+}
+
+/* Parameters */
+.export-params {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+}
+
+.param-group {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
+.param-group:last-child {
+    margin-bottom: 0;
+}
+
+.param-group label {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+    margin-right: 1rem;
+}
+
+.param-group input[type="number"] {
+    width: 120px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+    font-family: inherit;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    outline: none;
+    transition: border-color var(--transition);
+    -moz-appearance: textfield;
+}
+
+.param-group input[type="number"]:focus {
+    border-color: var(--accent);
+}
+
+.param-group input[type="number"]::-webkit-inner-spin-button,
+.param-group input[type="number"]::-webkit-outer-spin-button {
+    opacity: 1;
+}
+
+/* Download buttons */
+.export-actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.export-dl-btn {
+    flex: 1 1 auto;
+    min-width: 140px;
+    margin-top: 0;
+    padding: 0.75rem 1.25rem;
+    font-size: 0.95rem;
+}
+
+.btn--secondary {
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+}
+
+.btn--secondary:hover {
+    background: var(--border);
+    border-color: var(--accent);
+}
+
+/* Back to editor */
+.export-back {
+    text-align: center;
+}
+
+.btn--ghost {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    padding: 0.5rem 1.5rem;
+    font-size: 0.9rem;
+}
+
+.btn--ghost:hover {
+    color: var(--text-primary);
+    border-color: var(--accent);
+    background: rgba(233, 69, 96, 0.05);
 }
 
 /* Editor export button sizing */
