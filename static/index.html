@@ -1,4 +1,78 @@
 <!DOCTYPE html>
-<html><head><title>img2stl</title></head>
-<body><h1>img2stl</h1></body>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>img2stl</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app-container">
+
+    <!-- Header -->
+    <header>
+        <h1>img<span>2</span>stl</h1>
+        <p>Turn hand-drawn images into 3D-printable stencils</p>
+    </header>
+
+    <main>
+
+        <!-- ====== Upload Screen ====== -->
+        <section id="upload-screen" class="screen active">
+
+            <div id="drop-zone" class="drop-zone">
+                <span class="drop-zone__icon" aria-hidden="true">&#128444;</span>
+                <p class="drop-zone__text">Drag &amp; drop an image here or <strong>click to browse</strong></p>
+                <p class="drop-zone__hint">Supports PNG, JPG, WEBP</p>
+                <input type="file" id="file-input" accept="image/*">
+            </div>
+
+            <div id="preview-container">
+                <img id="preview" alt="Image preview">
+                <p id="file-name" class="file-name"></p>
+            </div>
+
+            <div class="upload-actions">
+                <button id="upload-btn" class="btn btn--primary" disabled>
+                    Clean &amp; Edit
+                </button>
+            </div>
+
+        </section>
+
+        <!-- ====== Editor Screen (placeholder — Task 9) ====== -->
+        <section id="editor-screen" class="screen">
+            <div class="placeholder-message">
+                <p>Editor will appear here.</p>
+            </div>
+        </section>
+
+        <!-- ====== Export Screen (placeholder — Task 10) ====== -->
+        <section id="export-screen" class="screen">
+            <div class="placeholder-message">
+                <p>Export options will appear here.</p>
+            </div>
+        </section>
+
+    </main>
+
+</div>
+
+<!-- Loading Overlay -->
+<div id="loading-overlay" class="loading-overlay">
+    <div class="spinner"></div>
+    <p>Processing image&hellip;</p>
+</div>
+
+<!-- Error Toast -->
+<div id="error-toast" class="error-toast"></div>
+
+<!-- Paper.js (needed for editor in Task 9) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.18/paper-full.min.js"></script>
+
+<!-- App -->
+<script src="app.js"></script>
+
+</body>
 </html>
