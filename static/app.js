@@ -902,9 +902,7 @@ function handleEditorWheel(e) {
 // ---------------------------------------------------------------------------
 function zoomToFit() {
     var target = null;
-    if (editor.bgLayer && editor.bgLayer.children.length > 0) {
-        target = editor.bgLayer.children[0];
-    } else if (editor.drawLayer && editor.drawLayer.bounds.width > 0) {
+    if (editor.drawLayer && editor.drawLayer.bounds.width > 0) {
         target = editor.drawLayer;
     }
     if (!target) return;
@@ -1158,26 +1156,14 @@ async function rasterizeForSTL() {
         });
     }
 
-    // Determine export dimensions from the background raster
-    var rasterItem = null;
-    if (editor.bgLayer && editor.bgLayer.children.length > 0) {
-        rasterItem = editor.bgLayer.children[0];
-    }
-
+    // Determine export dimensions from the draw layer content
     var exportWidth = 800;
     var exportHeight = 800;
-    var bounds;
+    var bounds = editor.drawLayer.bounds;
 
-    if (rasterItem) {
-        bounds = rasterItem.bounds;
+    if (bounds.width > 0) {
         var scale = exportWidth / bounds.width;
         exportHeight = Math.round(bounds.height * scale);
-    } else {
-        bounds = editor.drawLayer.bounds;
-        if (bounds.width > 0) {
-            var scale = exportWidth / bounds.width;
-            exportHeight = Math.round(bounds.height * scale);
-        }
     }
 
     var tempCanvas = document.createElement('canvas');
