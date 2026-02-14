@@ -59,3 +59,27 @@ def test_generate_svg_returns_svg():
     )
     assert response.status_code == 200
     assert "<svg" in response.text
+
+
+def test_full_pipeline_upload_then_stl():
+    """Upload image, get cleaned result, send back for STL generation."""
+    img_bytes = _make_test_image()
+
+    # Step 1: Upload and clean
+    resp1 = client.post(
+        "/api/upload",
+        files={"file": ("test.png", io.BytesIO(img_bytes), "image/png")},
+    )
+    assert resp1.status_code == 200
+    cleaned_b64 = resp1.json()["cleaned_image"]
+
+    # Step 2: Decode cleaned image and send for STL
+    import base64
+    cleaned_bytes = base64.b64decode(cleaned_b64)
+    resp2 = client.post(
+        "/api/generate-stl",
+        files={"file": ("cleaned.png", io.BytesIO(cleaned_bytes), "image/png")},
+        data={"width_mm": "100", "thickness_mm": "0.8", "border_mm": "3"},
+    )
+    assert resp2.status_code == 200
+    assert len(resp2.content) > 84
