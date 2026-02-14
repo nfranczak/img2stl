@@ -235,7 +235,16 @@ main {
 
 #editor-screen.active {
     display: flex;
-    height: calc(100vh - 100px);
+    height: calc(100vh - 20px);
+}
+
+/* Hide header and collapse main padding when editor is active */
+body.editor-active header {
+    display: none;
+}
+
+body.editor-active main {
+    padding: 0;
 }
 
 .editor-toolbar {

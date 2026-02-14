@@ -41,6 +41,13 @@ function showScreen(name) {
         target.classList.add('active');
     }
     state.screen = name;
+
+    // Hide header in editor mode to maximize canvas space
+    if (name === 'editor') {
+        document.body.classList.add('editor-active');
+    } else {
+        document.body.classList.remove('editor-active');
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -327,6 +334,10 @@ function getStrokeWidth() {
 function saveEditorState() {
     editor.undoStack.push(paper.project.exportJSON());
     editor.redoStack.length = 0;
+    // Cap undo history to prevent memory bloat
+    if (editor.undoStack.length > 50) {
+        editor.undoStack.shift();
+    }
 }
 
 function editorUndo() {
@@ -690,6 +701,7 @@ function toolEraserDown(event) {
         strokeCap: 'round',
         strokeJoin: 'round',
     });
+    editor.activePath.data.isEraser = true;
     editor.activePath.add(event.point);
 }
 
@@ -852,6 +864,16 @@ function setupEditorEvents() {
         });
     }
 
+    // New image button
+    var newImgBtn = document.getElementById('new-image-btn');
+    if (newImgBtn) {
+        newImgBtn.addEventListener('click', function () {
+            if (confirm('Start over with a new image? Current edits will be lost.')) {
+                resetUpload();
+            }
+        });
+    }
+
     // Mouse wheel for zoom
     var canvasContainer = document.querySelector('.editor-canvas-container');
     if (canvasContainer) {
@@ -997,12 +1019,28 @@ function initExportScreen() {
 
 /**
  * Creates a binary black-and-white image (ink = white, background = black)
- * from the cleaned image + user edits for the STL backend.
+ * from the draw layer paths for the STL backend.
+ *
+ * The draw layer contains the potrace paths (which represent the ink from the
+ * cleaned image) plus any user edits. Eraser paths (data.isEraser=true) are
+ * rendered in black to subtract ink.
+ *
+ * Two-pass render:
+ *   Pass 1: All non-eraser paths rendered in white (ink)
+ *   Pass 2: All eraser paths rendered in black (remove ink)
  *
  * Returns a Promise<Blob> of the mask PNG.
  */
 async function rasterizeForSTL() {
-    // Determine dimensions from the background raster
+    if (!editor.drawLayer) {
+        return new Promise(function (resolve) {
+            var c = document.createElement('canvas');
+            c.width = 100; c.height = 100;
+            c.toBlob(resolve, 'image/png');
+        });
+    }
+
+    // Determine export dimensions from the background raster
     var rasterItem = null;
     if (editor.bgLayer && editor.bgLayer.children.length > 0) {
         rasterItem = editor.bgLayer.children[0];
@@ -1010,10 +1048,18 @@ async function rasterizeForSTL() {
 
     var exportWidth = 800;
     var exportHeight = 800;
+    var bounds;
 
     if (rasterItem) {
-        var scale = exportWidth / rasterItem.bounds.width;
-        exportHeight = Math.round(rasterItem.bounds.height * scale);
+        bounds = rasterItem.bounds;
+        var scale = exportWidth / bounds.width;
+        exportHeight = Math.round(bounds.height * scale);
+    } else {
+        bounds = editor.drawLayer.bounds;
+        if (bounds.width > 0) {
+            var scale = exportWidth / bounds.width;
+            exportHeight = Math.round(bounds.height * scale);
+        }
     }
 
     var tempCanvas = document.createElement('canvas');
@@ -1021,46 +1067,72 @@ async function rasterizeForSTL() {
     tempCanvas.height = exportHeight;
     var ctx = tempCanvas.getContext('2d');
 
-    // Black background
+    // Black background (non-ink)
     ctx.fillStyle = 'black';
     ctx.fillRect(0, 0, exportWidth, exportHeight);
 
-    // Draw the cleaned image (which is already binary)
-    if (state.cleanedImage) {
-        var bgImg = new Image();
-        bgImg.src = 'data:image/png;base64,' + state.cleanedImage;
-        await new Promise(function (resolve, reject) {
-            bgImg.onload = resolve;
-            bgImg.onerror = reject;
-        });
-        ctx.drawImage(bgImg, 0, 0, exportWidth, exportHeight);
-    }
+    // Helper: render a set of paths as SVG onto the canvas
+    async function renderPaths(items, color) {
+        if (items.length === 0) return;
 
-    // Overlay the draw layer edits (vector paths)
-    if (editor.drawLayer && editor.drawLayer.children.length > 0) {
-        var svgStr = editor.drawLayer.exportSVG({ asString: true });
-        // Wrap the SVG so it has explicit dimensions for rendering
-        var wrappedSVG = svgStr;
-        // Ensure the SVG has a viewBox and dimensions for correct rendering
-        if (rasterItem) {
-            var bounds = rasterItem.bounds;
-            wrappedSVG = svgStr.replace(
+        // Create a temporary group, clone paths with the export color
+        var group = new paper.Group();
+        for (var i = 0; i < items.length; i++) {
+            var clone = items[i].clone({ insert: false });
+            clone.strokeColor = color;
+            if (clone.fillColor) clone.fillColor = color;
+            group.addChild(clone);
+        }
+
+        var svgStr = group.exportSVG({ asString: true });
+        group.remove();
+
+        // Add viewBox and dimensions so the SVG renders at the correct scale
+        if (bounds) {
+            svgStr = svgStr.replace(
                 /^<svg/,
-                '<svg viewBox="' + bounds.x + ' ' + bounds.y + ' ' + bounds.width + ' ' + bounds.height + '" width="' + exportWidth + '" height="' + exportHeight + '"'
+                '<svg viewBox="' + bounds.x + ' ' + bounds.y + ' ' +
+                bounds.width + ' ' + bounds.height +
+                '" width="' + exportWidth + '" height="' + exportHeight + '"'
             );
         }
 
-        var svgBlob = new Blob([wrappedSVG], { type: 'image/svg+xml;charset=utf-8' });
+        var svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
         var url = URL.createObjectURL(svgBlob);
-        var svgImg = new Image();
+        var img = new Image();
         await new Promise(function (resolve, reject) {
-            svgImg.onload = resolve;
-            svgImg.onerror = reject;
-            svgImg.src = url;
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = url;
         });
-        ctx.drawImage(svgImg, 0, 0, exportWidth, exportHeight);
+        ctx.drawImage(img, 0, 0, exportWidth, exportHeight);
         URL.revokeObjectURL(url);
     }
+
+    // Collect ink paths and eraser paths
+    var inkPaths = [];
+    var eraserPaths = [];
+
+    function collectPaths(item) {
+        if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
+            if (item.data && item.data.isEraser) {
+                eraserPaths.push(item);
+            } else {
+                inkPaths.push(item);
+            }
+        } else if (item.children) {
+            for (var i = 0; i < item.children.length; i++) {
+                collectPaths(item.children[i]);
+            }
+        }
+    }
+    collectPaths(editor.drawLayer);
+
+    // Pass 1: render ink paths in white
+    await renderPaths(inkPaths, 'white');
+
+    // Pass 2: render eraser paths in black (subtracts ink)
+    await renderPaths(eraserPaths, 'black');
 
     // Return a PNG blob
     return new Promise(function (resolve) {

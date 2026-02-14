@@ -1,6 +1,8 @@
-import numpy as np
-from stl import mesh as stl_mesh
+import io
+import struct
+
 import cv2
+import numpy as np
 
 
 def generate_stl(
@@ -29,71 +31,153 @@ def generate_stl(
     # Add border frame: expand image and mark border as solid
     padded = np.zeros((h + 2 * border_px, w + 2 * border_px), dtype=np.uint8)
     padded[border_px:border_px + h, border_px:border_px + w] = mask
-    # Border stays 0 (solid), only interior ink pixels are cutouts
     h, w = padded.shape
 
     # Recalculate pixel size so padded width maps exactly to width_mm
     pixel_mm = width_mm / w
 
-    # Build solid grid: 1 = solid (not ink), 0 = cutout (ink)
-    solid = (padded < 128).astype(np.uint8)
+    # Build solid grid: True = solid (not ink), False = cutout (ink)
+    solid = padded < 128
 
-    # Collect triangles
-    triangles = []
+    # Find coordinates of all solid pixels
+    rows, cols = np.where(solid)
+    if len(rows) == 0:
+        # Edge case: entirely cutout — return a minimal valid STL
+        return _write_stl(np.array([[[0, 0, 0], [1, 0, 0], [0, 1, 0]]]))
+
+    n = len(rows)
     z_top = thickness_mm
     z_bot = 0.0
 
-    for row in range(h):
-        for col in range(w):
-            if not solid[row, col]:
-                continue
+    # Compute pixel corner coordinates for all solid pixels at once
+    x0 = cols.astype(np.float32) * pixel_mm
+    x1 = (cols + 1).astype(np.float32) * pixel_mm
+    y0 = rows.astype(np.float32) * pixel_mm
+    y1 = (rows + 1).astype(np.float32) * pixel_mm
 
-            x0 = col * pixel_mm
-            x1 = (col + 1) * pixel_mm
-            y0 = row * pixel_mm
-            y1 = (row + 1) * pixel_mm
+    zt = np.full(n, z_top, dtype=np.float32)
+    zb = np.full(n, z_bot, dtype=np.float32)
 
-            # Top face (2 triangles)
-            triangles.append(([x0, y0, z_top], [x1, y0, z_top], [x1, y1, z_top]))
-            triangles.append(([x0, y0, z_top], [x1, y1, z_top], [x0, y1, z_top]))
+    # --- Top and bottom faces (always present for every solid pixel) ---
+    # Top face: 2 triangles per pixel = 2n triangles
+    top1 = np.stack([
+        np.stack([x0, y0, zt], axis=1),
+        np.stack([x1, y0, zt], axis=1),
+        np.stack([x1, y1, zt], axis=1),
+    ], axis=1)
+    top2 = np.stack([
+        np.stack([x0, y0, zt], axis=1),
+        np.stack([x1, y1, zt], axis=1),
+        np.stack([x0, y1, zt], axis=1),
+    ], axis=1)
 
-            # Bottom face (2 triangles, reversed winding)
-            triangles.append(([x0, y0, z_bot], [x1, y1, z_bot], [x1, y0, z_bot]))
-            triangles.append(([x0, y0, z_bot], [x0, y1, z_bot], [x1, y1, z_bot]))
+    # Bottom face: 2 triangles per pixel (reversed winding)
+    bot1 = np.stack([
+        np.stack([x0, y0, zb], axis=1),
+        np.stack([x1, y1, zb], axis=1),
+        np.stack([x1, y0, zb], axis=1),
+    ], axis=1)
+    bot2 = np.stack([
+        np.stack([x0, y0, zb], axis=1),
+        np.stack([x0, y1, zb], axis=1),
+        np.stack([x1, y1, zb], axis=1),
+    ], axis=1)
 
-            # Side faces — only at boundaries
-            # Left
-            if col == 0 or not solid[row, col - 1]:
-                triangles.append(([x0, y0, z_bot], [x0, y0, z_top], [x0, y1, z_top]))
-                triangles.append(([x0, y0, z_bot], [x0, y1, z_top], [x0, y1, z_bot]))
-            # Right
-            if col == w - 1 or not solid[row, col + 1]:
-                triangles.append(([x1, y0, z_bot], [x1, y1, z_top], [x1, y0, z_top]))
-                triangles.append(([x1, y0, z_bot], [x1, y1, z_bot], [x1, y1, z_top]))
-            # Top edge (y0 side)
-            if row == 0 or not solid[row - 1, col]:
-                triangles.append(([x0, y0, z_bot], [x1, y0, z_top], [x0, y0, z_top]))
-                triangles.append(([x0, y0, z_bot], [x1, y0, z_bot], [x1, y0, z_top]))
-            # Bottom edge (y1 side)
-            if row == h - 1 or not solid[row + 1, col]:
-                triangles.append(([x0, y1, z_bot], [x0, y1, z_top], [x1, y1, z_top]))
-                triangles.append(([x0, y1, z_bot], [x1, y1, z_top], [x1, y1, z_bot]))
+    face_tris = [top1, top2, bot1, bot2]
 
-    if not triangles:
-        # Edge case: entirely cutout, return minimal STL
-        triangles.append(([0, 0, 0], [1, 0, 0], [0, 1, 0]))
+    # --- Side faces (only at boundaries) ---
+    # Pad solid grid for safe neighbor lookups
+    solid_padded = np.pad(solid, 1, constant_values=False)
+    # Neighbor checks using the padded grid (offset by 1)
+    r = rows + 1  # offset into padded grid
+    c = cols + 1
 
-    # Build mesh
-    tri_array = np.array(triangles)
-    stl_object = stl_mesh.Mesh(np.zeros(len(tri_array), dtype=stl_mesh.Mesh.dtype))
-    stl_object.vectors = tri_array
+    # Left boundary: col==0 or left neighbor is not solid
+    left_mask = ~solid_padded[r, c - 1]
+    if np.any(left_mask):
+        lx0, ly0, ly1 = x0[left_mask], y0[left_mask], y1[left_mask]
+        lzt, lzb = zt[left_mask], zb[left_mask]
+        face_tris.append(np.stack([
+            np.stack([lx0, ly0, lzb], axis=1),
+            np.stack([lx0, ly0, lzt], axis=1),
+            np.stack([lx0, ly1, lzt], axis=1),
+        ], axis=1))
+        face_tris.append(np.stack([
+            np.stack([lx0, ly0, lzb], axis=1),
+            np.stack([lx0, ly1, lzt], axis=1),
+            np.stack([lx0, ly1, lzb], axis=1),
+        ], axis=1))
 
-    # Write to bytes
-    import tempfile, os
-    with tempfile.NamedTemporaryFile(suffix='.stl', delete=False) as f:
-        stl_object.save(f.name)
-        f.flush()
-        with open(f.name, 'rb') as rf:
-            data = rf.read()
-    os.unlink(f.name)
-    return data
+    # Right boundary
+    right_mask = ~solid_padded[r, c + 1]
+    if np.any(right_mask):
+        rx1, ry0, ry1 = x1[right_mask], y0[right_mask], y1[right_mask]
+        rzt, rzb = zt[right_mask], zb[right_mask]
+        face_tris.append(np.stack([
+            np.stack([rx1, ry0, rzb], axis=1),
+            np.stack([rx1, ry1, rzt], axis=1),
+            np.stack([rx1, ry0, rzt], axis=1),
+        ], axis=1))
+        face_tris.append(np.stack([
+            np.stack([rx1, ry0, rzb], axis=1),
+            np.stack([rx1, ry1, rzb], axis=1),
+            np.stack([rx1, ry1, rzt], axis=1),
+        ], axis=1))
+
+    # Top edge (y0 side)
+    top_edge_mask = ~solid_padded[r - 1, c]
+    if np.any(top_edge_mask):
+        tx0, tx1, ty0 = x0[top_edge_mask], x1[top_edge_mask], y0[top_edge_mask]
+        tzt, tzb = zt[top_edge_mask], zb[top_edge_mask]
+        face_tris.append(np.stack([
+            np.stack([tx0, ty0, tzb], axis=1),
+            np.stack([tx1, ty0, tzt], axis=1),
+            np.stack([tx0, ty0, tzt], axis=1),
+        ], axis=1))
+        face_tris.append(np.stack([
+            np.stack([tx0, ty0, tzb], axis=1),
+            np.stack([tx1, ty0, tzb], axis=1),
+            np.stack([tx1, ty0, tzt], axis=1),
+        ], axis=1))
+
+    # Bottom edge (y1 side)
+    bot_edge_mask = ~solid_padded[r + 1, c]
+    if np.any(bot_edge_mask):
+        bx0, bx1, by1 = x0[bot_edge_mask], x1[bot_edge_mask], y1[bot_edge_mask]
+        bzt, bzb = zt[bot_edge_mask], zb[bot_edge_mask]
+        face_tris.append(np.stack([
+            np.stack([bx0, by1, bzb], axis=1),
+            np.stack([bx0, by1, bzt], axis=1),
+            np.stack([bx1, by1, bzt], axis=1),
+        ], axis=1))
+        face_tris.append(np.stack([
+            np.stack([bx0, by1, bzb], axis=1),
+            np.stack([bx1, by1, bzt], axis=1),
+            np.stack([bx1, by1, bzb], axis=1),
+        ], axis=1))
+
+    # Concatenate all triangles
+    all_tris = np.concatenate(face_tris, axis=0)
+    return _write_stl(all_tris)
+
+
+def _write_stl(triangles: np.ndarray) -> bytes:
+    """Write triangles to binary STL format. triangles shape: (N, 3, 3)."""
+    n = len(triangles)
+    tris = triangles.astype(np.float32)
+
+    # Binary STL: 50 bytes per triangle
+    # normal (3 floats = 12 bytes) + 3 vertices (9 floats = 36 bytes) + attr (uint16 = 2 bytes)
+    record_dtype = np.dtype([
+        ('normal', np.float32, (3,)),
+        ('v', np.float32, (9,)),
+        ('attr', np.uint16),
+    ])
+    records = np.zeros(n, dtype=record_dtype)
+    records['v'] = tris.reshape(n, 9)
+
+    buf = io.BytesIO()
+    buf.write(b'\0' * 80)  # header
+    buf.write(struct.pack('<I', n))  # triangle count
+    buf.write(records.tobytes())  # all triangles at once
+    return buf.getvalue()
