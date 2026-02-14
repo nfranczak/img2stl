@@ -55,3 +55,43 @@ def remove_red_margin(img: np.ndarray, mask: np.ndarray) -> np.ndarray:
 
     cleaned = cv2.bitwise_and(mask, cv2.bitwise_not(red_line))
     return cleaned
+
+
+def clean_drawing(input_data) -> np.ndarray:
+    """Full cleaning pipeline. Accepts BGR image array or raw image bytes.
+    Returns binary mask (255=ink, 0=background), cropped to content.
+    """
+    if isinstance(input_data, bytes):
+        arr = np.frombuffer(input_data, np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    else:
+        img = input_data
+
+    # Step 1: Detect ink
+    mask = detect_ink(img)
+
+    # Step 2: Remove ruled lines
+    mask = remove_ruled_lines(mask)
+
+    # Step 3: Remove red margin
+    mask = remove_red_margin(img, mask)
+
+    # Step 4: Morphological cleanup
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)   # remove noise
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)  # connect gaps
+
+    # Step 5: Crop to bounding box with margin
+    coords = cv2.findNonZero(mask)
+    if coords is None:
+        return mask  # no ink found, return as-is
+
+    x, y, w, h = cv2.boundingRect(coords)
+    margin = 10
+    y1 = max(0, y - margin)
+    y2 = min(mask.shape[0], y + h + margin)
+    x1 = max(0, x - margin)
+    x2 = min(mask.shape[1], x + w + margin)
+    mask = mask[y1:y2, x1:x2]
+
+    return mask

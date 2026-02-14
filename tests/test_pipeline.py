@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from app.pipeline import detect_ink, remove_ruled_lines, remove_red_margin
+from app.pipeline import detect_ink, remove_ruled_lines, remove_red_margin, clean_drawing
 
 
 def test_detect_ink_dark_strokes():
@@ -58,3 +58,38 @@ def test_remove_red_margin_line():
     assert mask[100, 30] == 0
     # Ink stroke preserved
     assert mask[100, 100] == 255
+
+
+def test_clean_drawing_returns_binary_cropped():
+    """Full pipeline should return a cropped binary image."""
+    # Create a fake notebook page: white with blue lines, red margin, and ink drawing
+    img = np.full((400, 300, 3), 245, dtype=np.uint8)  # off-white paper
+    # Blue ruled lines
+    for y in range(50, 400, 30):
+        cv2.line(img, (0, y), (299, y), (230, 180, 180), 1)
+    # Red margin
+    cv2.line(img, (40, 0), (40, 399), (0, 0, 200), 2)
+    # Ink drawing: a rectangle
+    cv2.rectangle(img, (100, 100), (200, 250), (20, 20, 20), 3)
+
+    result = clean_drawing(img)
+
+    # Result should be binary
+    unique = np.unique(result)
+    assert set(unique).issubset({0, 255})
+    # Result should be cropped (smaller than original)
+    assert result.shape[0] < 400 or result.shape[1] < 300
+    # Should contain some ink pixels
+    assert np.sum(result == 255) > 0
+
+
+def test_clean_drawing_from_bytes():
+    """Pipeline should accept raw image bytes (as received from upload)."""
+    img = np.full((100, 100, 3), 255, dtype=np.uint8)
+    cv2.line(img, (20, 20), (80, 80), (20, 20, 20), 3)
+    _, buf = cv2.imencode('.png', img)
+    raw_bytes = buf.tobytes()
+
+    result = clean_drawing(raw_bytes)
+    assert result is not None
+    assert np.sum(result == 255) > 0
