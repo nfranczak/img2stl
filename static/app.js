@@ -1188,25 +1188,29 @@ async function rasterizeForSTL() {
             group.addChild(clone);
         }
 
-        var svgStr = group.exportSVG({ asString: true });
+        var svgNode = group.exportSVG();
         group.remove();
 
-        // Add viewBox and dimensions so the SVG renders at the correct scale
+        // exportSVG() on a Group returns a <g> element, not a standalone <svg>.
+        // Wrap it in a proper <svg> root so it renders as a valid SVG image.
+        var svgRoot = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svgRoot.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
         if (bounds) {
-            svgStr = svgStr.replace(
-                /^<svg/,
-                '<svg viewBox="' + bounds.x + ' ' + bounds.y + ' ' +
-                bounds.width + ' ' + bounds.height +
-                '" width="' + exportWidth + '" height="' + exportHeight + '"'
-            );
+            svgRoot.setAttribute('viewBox',
+                bounds.x + ' ' + bounds.y + ' ' +
+                bounds.width + ' ' + bounds.height);
+            svgRoot.setAttribute('width', exportWidth);
+            svgRoot.setAttribute('height', exportHeight);
         }
+        svgRoot.appendChild(svgNode);
 
+        var svgStr = new XMLSerializer().serializeToString(svgRoot);
         var svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
         var url = URL.createObjectURL(svgBlob);
         var img = new Image();
         await new Promise(function (resolve, reject) {
             img.onload = resolve;
-            img.onerror = reject;
+            img.onerror = function () { reject(new Error('Failed to render SVG to image')); };
             img.src = url;
         });
         ctx.drawImage(img, 0, 0, exportWidth, exportHeight);
@@ -1278,7 +1282,7 @@ async function exportSTL() {
         var stlBlob = await res.blob();
         triggerDownload(stlBlob, 'stencil.stl');
     } catch (err) {
-        showError('Export failed: ' + err.message);
+        showError('Export failed: ' + (err.message || err));
     } finally {
         showLoading(false);
     }
